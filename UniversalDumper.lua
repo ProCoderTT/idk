@@ -1,4 +1,4 @@
--- Universal Dumper v2 — No-UI (headless)
+-- Universal Dumper v2 — Headless with hierarchy
 -- Gathers & decompiles all LocalScripts/ModuleScripts
 
 local decompile = decompile or disassemble
@@ -25,11 +25,47 @@ local hasFS = pcall(function()
 end)
 local decompilecache = {}
 
+local ROOT = "UDump_" .. game.PlaceId
+
 local function isIgnored(v)
   if v:FindFirstAncestor("CoreGui") then return true end
   if v:FindFirstAncestor("CorePackages") then return true end
   if v:FindFirstAncestor("Chat") then return true end
   return false
+end
+
+local invalid_chars = {string.char(127), "\\", ":", "*", "?", '"', "<", ">", "|"}
+for i = 0, 32 do table.insert(invalid_chars, string.char(i)) end
+for i = 128, 255 do table.insert(invalid_chars, string.char(i)) end
+
+local function makeValid(str)
+  for _, c in next, invalid_chars do
+    str = string.gsub(str, c, "")
+  end
+  return str
+end
+
+local function ensureDir(path)
+  if not isfolder(path) then
+    makefolder(path)
+  end
+end
+
+local function getSavePath(v)
+  local fullName = v:GetFullName()
+  local parts = string.split(fullName, ".")
+
+  if #parts <= 1 then
+    return ROOT .. "/[nil]", v.Name .. "_" .. v:GetDebugId() .. ".lua"
+  end
+
+  local dirParts = {}
+  for i = 1, #parts - 1 do
+    table.insert(dirParts, makeValid(parts[i]))
+  end
+  local dir = ROOT .. "/" .. table.concat(dirParts, "/")
+  local fname = makeValid(v.Name) .. "_" .. v:GetDebugId() .. "." .. v.ClassName .. ".lua"
+  return dir, fname
 end
 
 local function doDump(v)
@@ -71,8 +107,9 @@ local function doDump(v)
   local output = header .. src
 
   if hasFS then
-    local fname = v.Name .. "_" .. v:GetDebugId() .. ".lua"
-    pcall(writefile, "UD_" .. fname, output)
+    local dir, fname = getSavePath(v)
+    ensureDir(dir)
+    pcall(writefile, dir .. "/" .. fname, output)
   end
 
   count = count + 1
@@ -88,7 +125,7 @@ for _, v in next, game:GetDescendants() do
   end
 end
 
-if settings.include_nil then
+if settings.include_nil and getnilinstances then
   for _, v in next, getnilinstances() do
     if (v:IsA("LocalScript") or v:IsA("ModuleScript")) and not isIgnored(v) then
       table.insert(scripts, v)
@@ -98,6 +135,10 @@ end
 
 total = #scripts
 print("Universal Dumper: Found " .. total .. " scripts")
+
+if hasFS then
+  ensureDir(ROOT)
+end
 
 -- Dump with threading
 for _, v in next, scripts do
@@ -114,5 +155,5 @@ end
 
 print("Universal Dumper: Done! Dumped " .. count .. "/" .. total .. " scripts")
 if hasFS then
-  print("Files saved: Delta/Workspace/UD_*.lua")
+  print("Files saved in: " .. ROOT .. "/")
 end
